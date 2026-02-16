@@ -1,0 +1,142 @@
+<!-- Landing Page -->
+<div *ngIf="view === 'landing'" id="landing-page" class="landing-container">
+    <h1>AI Interview Pro</h1>
+    <p class="subtitle">Practice your interview skills with real-time AI analysis</p>
+    
+    <div class="interview-type-selector">
+        <h2>Choose Interview Type</h2>
+        <div class="type-cards">
+            <div (click)="selectInterviewType('technical')" class="type-card" [class.selected]="selectedInterviewType === 'technical'" data-type="technical">
+                <h3>Technical Interview</h3>
+                <p>Software engineering & coding questions</p>
+            </div>
+            <div (click)="selectInterviewType('sales')" class="type-card" [class.selected]="selectedInterviewType === 'sales'" data-type="sales">
+                <h3>Sales Pitch</h3>
+                <p>Sales strategies & client communication</p>
+            </div>
+        </div>
+    </div>
+
+    <button id="start-session-btn" class="primary-btn" [disabled]="!selectedInterviewType || !modelLoaded" (click)="startSession()">
+        {{ modelLoaded ? 'Start Session' : 'Loading AI Model...' }}
+    </button>
+</div>
+
+<!-- Interview Session View -->
+<div *ngIf="view === 'session'" id="session-view" class="app-grid">
+    <!-- Session Header -->
+    <div class="session-header">
+        <div class="timer-container">
+            <span class="timer-label">Time:</span>
+            <span id="session-timer" class="timer-display">{{ timer$ | async }}</span>
+        </div>
+        <div class="question-container">
+            <p id="question-count" class="question-count">Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</p>
+            <h2 id="current-question" class="current-question">{{ currentQuestion }}</h2>
+        </div>
+        <div class="session-controls">
+            <button (click)="skipQuestion()" id="skip-btn" class="control-btn">Skip</button>
+            <button (click)="nextQuestion()" id="next-btn" class="control-btn primary">Next</button>
+            <button (click)="endSession()" id="end-session-btn" class="control-btn danger">End Session</button>
+        </div>
+    </div>
+
+    <div class="video-container">
+        <video #webcam id="webcam" autoplay playsinline></video>
+        <canvas #outputCanvas id="output_canvas"></canvas>
+    </div>
+
+    <div class="metrics-sidebar">
+        <div class="metric-card">
+            <h3>Blink Analysis</h3>
+            <p>Blink Count: <span id="blink-count">{{ blinkCount }}</span></p>
+            <div class="progress-bg">
+                <div [style.width.%]="earWidth" [style.background-color]="earColor" id="ear-bar" class="progress-fill"></div>
+            </div>
+            <small>Eye Openness (EAR)</small>
+        </div>
+
+        <div class="metric-card">
+            <h3>Confidence Score</h3>
+            <div class="score-circle" [style.color]="scoreColor">
+                <span id="final-score">{{ finalScore }}</span>%
+            </div>
+            <p id="live-feedback">{{ liveFeedback }}</p>
+        </div>
+        <div class="metric-card">
+            <h3>Head Stability</h3>
+            <p>Tilt: <span id="head-tilt">{{ headTilt }}</span>°</p>
+            <div class="stability-light" [style.background-color]="stabilityColor" [style.box-shadow]="'0 0 8px ' + stabilityColor" id="stability-indicator"></div>
+            <small id="stability-text">{{ stabilityText }}</small>
+        </div>
+        <div class="metric-card">
+            <h3>Vocal Energy</h3>
+            <div class="vocal-container">
+                <div [style.height.%]="vocalBarHeight" id="vocal-bar" class="vocal-fill"></div>
+            </div>
+            <p>Status: <span id="vocal-status">{{ vocalStatus }}</span></p>
+            <small>Target: 30% - 70% energy</small>
+        </div>
+        <div class="metric-card">
+            <h3>Fluency & Pace</h3>
+            <p>Words Spoken: <span id="word-count">{{ wordCount }}</span></p>
+            <div class="pace-meter">
+                <span id="wpm-display">{{ wpm }}</span> <small>WPM</small>
+            </div>
+            <p>Hesitations: <span id="hesitation-count">{{ hesitationCount }}</span></p>
+            <div id="pace-indicator" class="status-badge">{{ paceStatus }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Session Summary Modal -->
+<div *ngIf="view === 'summary'" id="summary-modal" class="modal">
+    <div class="modal-content" *ngIf="summary">
+        <h2>Interview Session Complete!</h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Final Score</h3>
+                <div class="big-score" id="summary-final-score">{{ summary.score.final }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Session Details</h3>
+                <p>Type: <span id="summary-type">{{ summary.interviewType }}</span></p>
+                <p>Duration: <span id="summary-duration">{{ formatDuration(summary.totalTime) }}</span></p>
+                <p>Questions: <span id="summary-questions">{{ summary.questionsCompleted }} of {{ questions.length }}</span></p>
+            </div>
+            <div class="summary-card full-width">
+                <h3>Performance Breakdown</h3>
+                <div class="breakdown-grid">
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Expression</span>
+                        <span class="breakdown-value" id="summary-expression">{{ summary.score.breakdown.expression }}</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Eye Contact</span>
+                        <span class="breakdown-value" id="summary-ocular">{{ summary.score.breakdown.ocular }}</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Posture</span>
+                        <span class="breakdown-value" id="summary-pose">{{ summary.score.breakdown.pose }}</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Voice</span>
+                        <span class="breakdown-value" id="summary-vocal">{{ summary.score.breakdown.vocal }}</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Fluency</span>
+                        <span class="breakdown-value" id="summary-fluency">{{ summary.score.breakdown.fluency }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="summary-card full-width">
+                <h3>Statistics</h3>
+                <p>Blink Rate: <span id="summary-blink-rate">{{ summary.score.stats.blinkRate }}</span> per minute</p>
+                <p>Speaking Pace: <span id="summary-wpm">{{ summary.score.stats.wpm }}</span> words per minute</p>
+                <p>Head Stability: <span id="summary-stability">{{ summary.score.stats.stabilityPercent }}</span>%</p>
+                <p>Average Volume: <span id="summary-volume">{{ summary.score.stats.avgVolume }}</span>%</p>
+            </div>
+        </div>
+        <button id="close-summary-btn" class="primary-btn" (click)="restartApp()">Start New Session</button>
+    </div>
+</div>
