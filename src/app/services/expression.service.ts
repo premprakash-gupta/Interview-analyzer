@@ -8,6 +8,7 @@ export class ExpressionService {
   faceApiReady = false;
   private lastFaceApiTs = 0;
   private minIntervalMs = 200;
+  private smoothedScore = 0.50;
   private lastResult = {
     mood: this.currentMood,
     smileScore: 0,
@@ -115,39 +116,67 @@ export class ExpressionService {
   }
 
   analyze(blendshapes: any[]) {
-    const shapes: any = {};
-    blendshapes.forEach(item => {
-      shapes[item.categoryName] = item.score;
-    });
+    const getS = (name: string) => blendshapes.find(b => b.categoryName === name)?.score || 0;
 
-    const smileScore = (shapes['mouthSmileLeft'] + shapes['mouthSmileRight']) / 2;
-    const confusionScore = (shapes['browDownLeft'] + shapes['browDownRight']) / 2;
-    const anxietyScore = (shapes['mouthPressLeft'] + shapes['mouthPressRight']) / 2;
+    // 1. Grouped Markers
+    // --- Confidence ---
+    const smile = (getS('mouthSmileLeft') + getS('mouthSmileRight')) / 2;
 
-    const isSmiling = smileScore > 0.4;
-    const isConfused = confusionScore > 0.3;
-    const isAnxious = anxietyScore > 0.4;
+    // --- Tension & Stress ---
+    const mouthPucker = getS('mouthPucker'); // Pursing lips in stress
+    const jawOpen = getS('jawOpen'); // Dropping jaw in shock
+    const mouthPress = (getS('mouthPressLeft') + getS('mouthPressRight')) / 2; // Tense lips
 
-    let numericScore = 0.75;
-    if (isSmiling) {
-      this.currentMood = "Confident/Positive";
-      numericScore = 0.85 + (smileScore * 0.15);
-    } else if (isConfused) {
-      this.currentMood = "Confused/Thinking";
-      numericScore = 0.55 + (confusionScore * 0.15);
-    } else if (isAnxious) {
-      this.currentMood = "Anxious/Tense";
-      numericScore = 0.4 + (anxietyScore * 0.2);
+    // --- Focus & Thinking ---
+    const browDown = (getS('browDownLeft') + getS('browDownRight')) / 2; // Concentration
+    const browInnerUp = getS('browInnerUp'); // Worry or surprise
+
+    // --- Ocular Engagement ---
+    const eyesWide = (getS('eyeWideLeft') + getS('eyeWideRight')) / 2; // Shock/Alertness
+
+    // 2. Advanced Dynamic Scoring
+    let rawScore = 0.70; // Start at a "Good" baseline
+
+    // POSITIVE: Confidence Bonus
+    rawScore += (smile * 0.35);
+
+    // NEGATIVE: Stress Penalties
+    rawScore -= (mouthPucker * 0.25);
+    rawScore -= (mouthPress * 0.20);
+    rawScore -= (browInnerUp * 0.15); // Too much brow movement can indicate panic
+
+    // ATTENTION: Shock / Lack of Focus
+    if (eyesWide > 0.4) rawScore -= 0.1; // Sudden shock penalty
+    if (jawOpen > 0.3) rawScore -= 0.15; // "Gasping" shock penalty
+
+    rawScore = Math.max(0, Math.min(1, rawScore));
+
+    // 3. Smoothing (EMA)
+    const weight = 0.15;
+    this.smoothedScore = (this.smoothedScore * (1 - weight)) + (rawScore * weight);
+
+    // 4. Detailed Mood Logic
+    if (smile > 0.4) {
+      this.currentMood = "Confident & Engaging";
+    } else if (eyesWide > 0.5 || jawOpen > 0.4) {
+      this.currentMood = "Surprised / Caught Off-guard";
+    } else if (browDown > 0.4 || mouthPress > 0.4) {
+      this.currentMood = "Deeply Focused / Tense";
+    } else if (mouthPucker > 0.3) {
+      this.currentMood = "Pensive / Uncertain";
     } else {
-      this.currentMood = "Neutral";
-      numericScore = 0.75;
+      this.currentMood = "Neutral / Professional";
     }
 
     return {
       mood: this.currentMood,
-      smileScore: smileScore,
-      confusionScore: confusionScore,
-      score: numericScore
+      score: this.smoothedScore,
+      details: {
+        smile,
+        tension: (mouthPucker + mouthPress) / 2,
+        focus: browDown,
+        surprise: (eyesWide + jawOpen) / 2
+      }
     };
   }
 }

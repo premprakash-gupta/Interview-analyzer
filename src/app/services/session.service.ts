@@ -136,7 +136,9 @@ export class SessionService {
     const blinkRate = this.sessionData.totalBlinks / timeInMinutes;
     let ocularScore = 0;
     if (blinkRate > 25) ocularScore = 60;
-    else if (blinkRate < 8) ocularScore = 70;
+    else if(blinkRate >20) ocularScore = 70;
+    else if(blinkRate >15) ocularScore = 80;
+    else if(blinkRate >8) ocularScore = 90;
     else ocularScore = 100;
 
     const totalPoseFrames = this.sessionData.headStabilityFrames.stable +

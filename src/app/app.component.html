@@ -2,22 +2,25 @@
 <div *ngIf="view === 'landing'" id="landing-page" class="landing-container">
     <h1>AI Interview Pro</h1>
     <p class="subtitle">Practice your interview skills with real-time AI analysis</p>
-    
+
     <div class="interview-type-selector">
         <h2>Choose Interview Type</h2>
         <div class="type-cards">
-            <div (click)="selectInterviewType('technical')" class="type-card" [class.selected]="selectedInterviewType === 'technical'" data-type="technical">
+            <div (click)="selectInterviewType('technical')" class="type-card"
+                [class.selected]="selectedInterviewType === 'technical'" data-type="technical">
                 <h3>Technical Interview</h3>
                 <p>Software engineering & coding questions</p>
             </div>
-            <div (click)="selectInterviewType('sales')" class="type-card" [class.selected]="selectedInterviewType === 'sales'" data-type="sales">
+            <div (click)="selectInterviewType('sales')" class="type-card"
+                [class.selected]="selectedInterviewType === 'sales'" data-type="sales">
                 <h3>Sales Pitch</h3>
                 <p>Sales strategies & client communication</p>
             </div>
         </div>
     </div>
 
-    <button id="start-session-btn" class="primary-btn" [disabled]="!selectedInterviewType || !modelLoaded" (click)="startSession()">
+    <button id="start-session-btn" class="primary-btn" [disabled]="!selectedInterviewType || !modelLoaded"
+        (click)="startSession()">
         {{ modelLoaded ? 'Start Session' : 'Loading AI Model...' }}
     </button>
 </div>
@@ -31,7 +34,8 @@
             <span id="session-timer" class="timer-display">{{ timer$ | async }}</span>
         </div>
         <div class="question-container">
-            <p id="question-count" class="question-count">Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</p>
+            <p id="question-count" class="question-count">Question {{ currentQuestionIndex + 1 }} of {{ questions.length
+                }}</p>
             <h2 id="current-question" class="current-question">{{ currentQuestion }}</h2>
         </div>
         <div class="session-controls">
@@ -51,7 +55,8 @@
             <h3>Blink Analysis</h3>
             <p>Blink Count: <span id="blink-count">{{ blinkCount }}</span></p>
             <div class="progress-bg">
-                <div [style.width.%]="earWidth" [style.background-color]="earColor" id="ear-bar" class="progress-fill"></div>
+                <div [style.width.%]="earWidth" [style.background-color]="earColor" id="ear-bar" class="progress-fill">
+                </div>
             </div>
             <small>Eye Openness (EAR)</small>
         </div>
@@ -66,7 +71,8 @@
         <div class="metric-card">
             <h3>Head Stability</h3>
             <p>Tilt: <span id="head-tilt">{{ headTilt }}</span>°</p>
-            <div class="stability-light" [style.background-color]="stabilityColor" [style.box-shadow]="'0 0 8px ' + stabilityColor" id="stability-indicator"></div>
+            <div class="stability-light" [style.background-color]="stabilityColor"
+                [style.box-shadow]="'0 0 8px ' + stabilityColor" id="stability-indicator"></div>
             <small id="stability-text">{{ stabilityText }}</small>
         </div>
         <div class="metric-card">
@@ -102,14 +108,16 @@
                 <h3>Session Details</h3>
                 <p>Type: <span id="summary-type">{{ summary.interviewType }}</span></p>
                 <p>Duration: <span id="summary-duration">{{ formatDuration(summary.totalTime) }}</span></p>
-                <p>Questions: <span id="summary-questions">{{ summary.questionsCompleted }} of {{ questions.length }}</span></p>
+                <p>Questions: <span id="summary-questions">{{ summary.questionsCompleted }} of {{ questions.length
+                        }}</span></p>
             </div>
             <div class="summary-card full-width">
                 <h3>Performance Breakdown</h3>
                 <div class="breakdown-grid">
                     <div class="breakdown-item">
                         <span class="breakdown-label">Expression</span>
-                        <span class="breakdown-value" id="summary-expression">{{ summary.score.breakdown.expression }}</span>
+                        <span class="breakdown-value" id="summary-expression">{{ summary.score.breakdown.expression
+                            }}</span>
                     </div>
                     <div class="breakdown-item">
                         <span class="breakdown-label">Eye Contact</span>
