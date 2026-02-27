@@ -6,10 +6,13 @@ import { Injectable } from '@angular/core';
 export class SpeechService {
   private recognition: any = null;
   private wordCount = 0;
+  private lastWordCount = 0;
   private startTime: number | null = null;
   private silentGaps = 0;
   private lastSpeechTime = Date.now();
   private isRunning = false;
+  private currentTranscript = '';
+  private interimTranscript = '';
 
   constructor() {
     this.setupRecognition();
@@ -29,16 +32,16 @@ export class SpeechService {
     this.recognition.maxAlternatives = 1;
 
     this.recognition.onresult = (event: any) => {
+      this.interimTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          const transcript = result[0].transcript.trim();
-          if (transcript) {
-            const words = transcript.split(/\s+/).filter((w: string) => w.length > 0).length;
-            this.wordCount += words;
-            this.lastSpeechTime = Date.now();
-            console.log(`Speech detected: "${transcript}" (${words} words, total: ${this.wordCount})`);
-          }
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          const words = transcript.trim().split(/\s+/).filter((w: string) => w.length > 0);
+          this.wordCount += words.length;
+          this.currentTranscript += transcript + ' ';
+          this.lastSpeechTime = Date.now();
+        } else {
+          this.interimTranscript += transcript;
         }
       }
     };
@@ -53,7 +56,6 @@ export class SpeechService {
     };
 
     this.recognition.onend = () => {
-      console.log('Speech recognition ended, restarting...');
       if (this.isRunning) {
         this.restart();
       }
@@ -61,13 +63,9 @@ export class SpeechService {
   }
 
   start() {
-    if (!this.recognition) {
-      return;
-    }
-
+    if (!this.recognition) return;
     this.startTime = Date.now();
     this.isRunning = true;
-
     try {
       this.recognition.start();
     } catch (err) {
@@ -80,18 +78,10 @@ export class SpeechService {
 
   restart() {
     if (!this.isRunning) return;
-
-    try {
-      this.recognition.stop();
-    } catch (err) { }
-
+    try { this.recognition.stop(); } catch (err) { }
     setTimeout(() => {
       if (this.isRunning) {
-        try {
-          this.recognition.start();
-        } catch (err) {
-          console.error('Failed to restart speech recognition:', err);
-        }
+        try { this.recognition.start(); } catch (err) { }
       }
     }, 100);
   }
@@ -99,21 +89,28 @@ export class SpeechService {
   stop() {
     this.isRunning = false;
     if (this.recognition) {
-      try {
-        this.recognition.stop();
-      } catch (err) { }
+      try { this.recognition.stop(); } catch (err) { }
     }
+  }
+
+  getLiveTranscript() {
+    return (this.currentTranscript + ' ' + this.interimTranscript).trim();
+  }
+
+  popTranscript() {
+    const t = this.currentTranscript.trim();
+    this.currentTranscript = '';
+    this.interimTranscript = '';
+    return t;
   }
 
   getFluencyMetrics() {
     const now = Date.now();
     const elapsedMinutes = (this.startTime ? (now - this.startTime) : 0) / 60000;
-
     if (now - this.lastSpeechTime > 3000) {
-      this.silentGaps++;
+      // Logic for hesitations could be more complex, keeping it simple
       this.lastSpeechTime = now;
     }
-
     const wpm = elapsedMinutes > 0 ? (this.wordCount / elapsedMinutes) : 0;
 
     return {
@@ -127,6 +124,7 @@ export class SpeechService {
   reset() {
     this.wordCount = 0;
     this.silentGaps = 0;
+    this.currentTranscript = '';
     this.lastSpeechTime = Date.now();
     this.startTime = Date.now();
   }

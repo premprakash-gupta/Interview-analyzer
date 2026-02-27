@@ -19,35 +19,66 @@
         </div>
     </div>
 
+    <div class="question-count-selector" *ngIf="selectedInterviewType">
+        <h2>Number of Questions</h2>
+        <div class="count-chips">
+            <button *ngFor="let count of [1, 3, 5, 10]" (click)="setQuestionCount(count)"
+                [class.active]="questionCount === count" class="count-chip">{{ count }}</button>
+        </div>
+    </div>
+
     <button id="start-session-btn" class="primary-btn" [disabled]="!selectedInterviewType || !modelLoaded"
         (click)="startSession()">
         {{ modelLoaded ? 'Start Session' : 'Loading AI Model...' }}
     </button>
 </div>
 
+<!-- Countdown View -->
+<div *ngIf="view === 'countdown'" class="countdown-container">
+    <div class="countdown-content">
+        <h2 class="relax-msg">Sit back, relax, and take a deep breath.</h2>
+        <div class="countdown-timer">
+            <span class="countdown-number">{{ countdownValue }}</span>
+            <p class="starting-text">Your interview is starting in 5 seconds...</p>
+        </div>
+        <div class="loading-bar-container">
+            <div class="loading-bar-fill"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Interview Session View -->
-<div *ngIf="view === 'session'" id="session-view" class="app-grid">
-    <!-- Session Header -->
+<div *ngIf="view === 'session' || view === 'countdown'" [class.ghost-view]="view === 'countdown'" id="session-view"
+    class="app-grid">
     <div class="session-header">
         <div class="timer-container">
-            <span class="timer-label">Time:</span>
+            <span class="timer-label">Session:</span>
             <span id="session-timer" class="timer-display">{{ timer$ | async }}</span>
         </div>
-        <div class="question-container">
+        <div class="question-container" *ngIf="currentQuestion">
             <p id="question-count" class="question-count">Question {{ currentQuestionIndex + 1 }} of {{ questions.length
                 }}</p>
-            <h2 id="current-question" class="current-question">{{ currentQuestion }}</h2>
+            <h2 id="current-question" class="current-question">{{ currentQuestion.text }}</h2>
+            <div class="q-timer" [class.warning]="questionTimeLeft < 15">
+                Time Remaining: <span>{{ questionTimeLeft }}s</span>
+            </div>
         </div>
         <div class="session-controls">
             <button (click)="skipQuestion()" id="skip-btn" class="control-btn">Skip</button>
-            <button (click)="nextQuestion()" id="next-btn" class="control-btn primary">Next</button>
+            <button (click)="openReview()" id="next-btn" class="control-btn primary">Next</button>
             <button (click)="endSession()" id="end-session-btn" class="control-btn danger">End Session</button>
         </div>
     </div>
 
-    <div class="video-container">
-        <video #webcam id="webcam" autoplay playsinline></video>
-        <canvas #outputCanvas id="output_canvas"></canvas>
+    <div class="video-section">
+        <div class="video-container">
+            <video #webcam id="webcam" autoplay playsinline></video>
+            <canvas #outputCanvas id="output_canvas"></canvas>
+        </div>
+        <div class="transcript-box">
+            <h3>Live Transcript</h3>
+            <div class="transcript-content">{{ liveTranscript || 'Start speaking to see transcript...' }}</div>
+        </div>
     </div>
 
     <div class="metrics-sidebar">
@@ -95,56 +126,135 @@
     </div>
 </div>
 
+<!-- Transcript Review Modal -->
+<div *ngIf="isReviewing" class="modal">
+    <div class="modal-content review-modal">
+        <h2>Review Answer</h2>
+        <p>Edit your response if any words were misidentified:</p>
+        <textarea [(ngModel)]="editableTranscript" class="edit-transcript-area"></textarea>
+        <div class="modal-controls">
+            <button (click)="saveAndNext()" class="primary-btn">Save & Proceed</button>
+        </div>
+    </div>
+</div>
+
 <!-- Session Summary Modal -->
 <div *ngIf="view === 'summary'" id="summary-modal" class="modal">
-    <div class="modal-content" *ngIf="summary">
-        <h2>Interview Session Complete!</h2>
-        <div class="summary-grid">
-            <div class="summary-card">
-                <h3>Final Score</h3>
-                <div class="big-score" id="summary-final-score">{{ summary.score.final }}</div>
+    <div class="modal-content premium-summary" *ngIf="summary">
+        <div class="summary-header">
+            <h2>Interview Complete</h2>
+            <div class="header-actions">
+                <button class="secondary-btn" (click)="downloadReport()">Download Report (PDF)</button>
+                <button class="close-btn" (click)="restartApp()">&times;</button>
             </div>
-            <div class="summary-card">
-                <h3>Session Details</h3>
-                <p>Type: <span id="summary-type">{{ summary.interviewType }}</span></p>
-                <p>Duration: <span id="summary-duration">{{ formatDuration(summary.totalTime) }}</span></p>
-                <p>Questions: <span id="summary-questions">{{ summary.questionsCompleted }} of {{ questions.length
-                        }}</span></p>
+        </div>
+
+        <div class="hero-stats">
+            <div class="score-card">
+                <div class="score-label">Average Confidence</div>
+                <div class="score-value">{{ summary.averageScore }}%</div>
             </div>
-            <div class="summary-card full-width">
-                <h3>Performance Breakdown</h3>
-                <div class="breakdown-grid">
-                    <div class="breakdown-item">
-                        <span class="breakdown-label">Expression</span>
-                        <span class="breakdown-value" id="summary-expression">{{ summary.score.breakdown.expression
-                            }}</span>
+            <div class="session-meta">
+                <div class="meta-item">
+                    <span class="meta-label">Interview Type</span>
+                    <span class="meta-value">{{ summary.interviewType | titlecase }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Total Duration</span>
+                    <span class="meta-value">{{ formatDuration(summary.totalTime) }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Questions</span>
+                    <span class="meta-value">{{ summary.questionsCompleted }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-section">
+            <h3>Performance Breakdown</h3>
+            <div class="breakdown-cards">
+                <div class="b-card">
+                    <div class="b-icon">😊</div>
+                    <div class="b-data">
+                        <span class="b-label">Expression</span>
+                        <span class="b-val">{{ summary.averageBreakdown.expression }}%</span>
                     </div>
-                    <div class="breakdown-item">
-                        <span class="breakdown-label">Eye Contact</span>
-                        <span class="breakdown-value" id="summary-ocular">{{ summary.score.breakdown.ocular }}</span>
+                </div>
+                <div class="b-card">
+                    <div class="b-icon">👁️</div>
+                    <div class="b-data">
+                        <span class="b-label">Eye Contact</span>
+                        <span class="b-val">{{ summary.averageBreakdown.ocular }}%</span>
                     </div>
-                    <div class="breakdown-item">
-                        <span class="breakdown-label">Posture</span>
-                        <span class="breakdown-value" id="summary-pose">{{ summary.score.breakdown.pose }}</span>
+                </div>
+                <div class="b-card">
+                    <div class="b-icon">🧍</div>
+                    <div class="b-data">
+                        <span class="b-label">Posture</span>
+                        <span class="b-val">{{ summary.averageBreakdown.pose }}%</span>
                     </div>
-                    <div class="breakdown-item">
-                        <span class="breakdown-label">Voice</span>
-                        <span class="breakdown-value" id="summary-vocal">{{ summary.score.breakdown.vocal }}</span>
+                </div>
+                <div class="b-card">
+                    <div class="b-icon">🎙️</div>
+                    <div class="b-data">
+                        <span class="b-label">Voice</span>
+                        <span class="b-val">{{ summary.averageBreakdown.vocal }}%</span>
                     </div>
-                    <div class="breakdown-item">
-                        <span class="breakdown-label">Fluency</span>
-                        <span class="breakdown-value" id="summary-fluency">{{ summary.score.breakdown.fluency }}</span>
+                </div>
+                <div class="b-card">
+                    <div class="b-icon">⚡</div>
+                    <div class="b-data">
+                        <span class="b-label">Fluency</span>
+                        <span class="b-val">{{ summary.averageBreakdown.fluency }}%</span>
                     </div>
                 </div>
             </div>
-            <div class="summary-card full-width">
-                <h3>Statistics</h3>
-                <p>Blink Rate: <span id="summary-blink-rate">{{ summary.score.stats.blinkRate }}</span> per minute</p>
-                <p>Speaking Pace: <span id="summary-wpm">{{ summary.score.stats.wpm }}</span> words per minute</p>
-                <p>Head Stability: <span id="summary-stability">{{ summary.score.stats.stabilityPercent }}</span>%</p>
-                <p>Average Volume: <span id="summary-volume">{{ summary.score.stats.avgVolume }}</span>%</p>
+        </div>
+
+        <div class="summary-section">
+            <h3>Vital Statistics</h3>
+            <div class="stats-box">
+                <p>Blink Rate: <strong>{{ summary.averageStats.blinkRate }}</strong> /min</p>
+                <p>Speaking Pace: <strong>{{ summary.averageStats.wpm }}</strong> WPM</p>
+                <p>Head Stability: <strong>{{ summary.averageStats.stabilityPercent }}%</strong></p>
+                <p>Avg Volume: <strong>{{ summary.averageStats.avgVolume }}%</strong></p>
             </div>
         </div>
-        <button id="close-summary-btn" class="primary-btn" (click)="restartApp()">Start New Session</button>
+
+        <div class="summary-section">
+            <h3>Question Breakdown</h3>
+            <div class="accordion">
+                <div *ngFor="let round of summary.rounds; let i = index" class="accordion-item"
+                    [class.expanded]="expandedRoundIndex === i">
+                    <div class="accordion-header" (click)="toggleRound(i)">
+                        <div class="q-title">
+                            <span class="q-num">Q{{ i + 1 }}</span>
+                            {{ round.question }}
+                        </div>
+                        <div class="q-stats">
+                            <span class="q-score" *ngIf="round.score">{{ round.score.final }}%</span>
+                            <span class="skipped" *ngIf="!round.score">Skipped</span>
+                            <span class="arrow">▼</span>
+                        </div>
+                    </div>
+                    <div class="accordion-body">
+                        <div class="round-details" *ngIf="round.transcript">
+                            <h4>Transcript</h4>
+                            <p>"{{ round.transcript }}"</p>
+                            <div class="round-metrics" *ngIf="round.score">
+                                <span>Pace: {{ round.score.stats.wpm }} WPM</span> |
+                                <span>Stability: {{ round.score.stats.stabilityPercent }}%</span>
+                            </div>
+                        </div>
+                        <div *ngIf="!round.transcript" class="not-answered">No response recorded for this question.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-footer">
+            <button class="primary-btn" (click)="restartApp()">Start New Session</button>
+        </div>
     </div>
 </div>

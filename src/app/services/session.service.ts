@@ -1,5 +1,13 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
+import { Question } from '../models/questions.const';
+
+export interface RoundResult {
+  question: string;
+  transcript: string;
+  score: any;
+  duration: number;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -8,7 +16,7 @@ export class SessionService {
   isActive = false;
   interviewType: string | null = null;
   currentQuestionIndex = 0;
-  questions: string[] = [];
+  questions: Question[] = [];
   startTime: number | null = null;
   totalElapsedSeconds = 0;
   private timerInterval: any = null;
@@ -16,41 +24,50 @@ export class SessionService {
   private timerSubject = new BehaviorSubject<string>('00:00');
   timer$ = this.timerSubject.asObservable();
 
-  sessionData = {
+  // Current round data (resets per question)
+  roundData = {
     totalBlinks: 0,
     expressionScores: [] as number[],
     totalWords: 0,
     totalHesitations: 0,
     headStabilityFrames: { stable: 0, unstable: 0 },
     volumeSamples: [] as number[],
-    questionMetrics: [] as any[]
+    elapsedSeconds: 0
   };
+
+  // Final session data
+  allRoundResults: RoundResult[] = [];
 
   constructor() { }
 
-  startSession(interviewType: string, questions: string[]) {
+  startSession(interviewType: string, questions: Question[]) {
     this.isActive = true;
     this.interviewType = interviewType;
     this.questions = questions;
     this.currentQuestionIndex = 0;
     this.startTime = Date.now();
     this.totalElapsedSeconds = 0;
+    this.allRoundResults = [];
+    this.resetRoundData();
 
-    this.sessionData = {
+    if (this.timerInterval) clearInterval(this.timerInterval);
+    this.timerInterval = setInterval(() => {
+      this.totalElapsedSeconds++;
+      this.roundData.elapsedSeconds++;
+      this.updateTimerDisplay();
+    }, 1000);
+  }
+
+  resetRoundData() {
+    this.roundData = {
       totalBlinks: 0,
       expressionScores: [],
       totalWords: 0,
       totalHesitations: 0,
       headStabilityFrames: { stable: 0, unstable: 0 },
       volumeSamples: [],
-      questionMetrics: []
+      elapsedSeconds: 0
     };
-
-    if (this.timerInterval) clearInterval(this.timerInterval);
-    this.timerInterval = setInterval(() => {
-      this.totalElapsedSeconds++;
-      this.updateTimerDisplay();
-    }, 1000);
   }
 
   stopSession() {
@@ -68,15 +85,32 @@ export class SessionService {
     this.timerSubject.next(timeStr);
   }
 
+  saveRound(transcript: string) {
+    const score = this.calculateRoundScore();
+    this.allRoundResults.push({
+      question: this.questions[this.currentQuestionIndex].text,
+      transcript: transcript,
+      score: score,
+      duration: this.roundData.elapsedSeconds
+    });
+  }
+
   nextQuestion() {
     if (this.currentQuestionIndex < this.questions.length - 1) {
       this.currentQuestionIndex++;
+      this.resetRoundData();
       return true;
     }
     return false;
   }
 
   skipQuestion() {
+    this.allRoundResults.push({
+      question: this.questions[this.currentQuestionIndex].text,
+      transcript: '',
+      score: null,
+      duration: 0
+    });
     return this.nextQuestion();
   }
 
@@ -89,122 +123,93 @@ export class SessionService {
 
     if (visualData.faceDetected) {
       if (visualData.expression && visualData.expression.score !== undefined) {
-        this.sessionData.expressionScores.push(visualData.expression.score);
+        this.roundData.expressionScores.push(visualData.expression.score);
       }
-
-      if (visualData.ocular && visualData.ocular.blinkCount > this.sessionData.totalBlinks) {
-        this.sessionData.totalBlinks = visualData.ocular.blinkCount;
+      if (visualData.ocular && visualData.ocular.blinkCount > this.roundData.totalBlinks) {
+        this.roundData.totalBlinks = visualData.ocular.blinkCount;
       }
-
       if (visualData.pose && visualData.pose.isStable !== undefined) {
         if (visualData.pose.isStable) {
-          this.sessionData.headStabilityFrames.stable++;
+          this.roundData.headStabilityFrames.stable++;
         } else {
-          this.sessionData.headStabilityFrames.unstable++;
+          this.roundData.headStabilityFrames.unstable++;
         }
       }
     }
-
     if (vocalData && vocalData.volume !== undefined) {
-      this.sessionData.volumeSamples.push(vocalData.volume);
+      this.roundData.volumeSamples.push(vocalData.volume);
     }
-
     if (fluencyData) {
-      if (fluencyData.wordCount > this.sessionData.totalWords) {
-        this.sessionData.totalWords = fluencyData.wordCount;
-      }
-      if (fluencyData.hesitations > this.sessionData.totalHesitations) {
-        this.sessionData.totalHesitations = fluencyData.hesitations;
-      }
+      this.roundData.totalWords = fluencyData.wordCount;
+      this.roundData.totalHesitations = fluencyData.hesitations;
     }
   }
 
-  calculateFinalScore() {
-    if (!this.isActive && this.totalElapsedSeconds === 0) {
-      return { final: 0, breakdown: {}, stats: {} };
+  calculateRoundScore() {
+    // Prevent wild fluctuations in the first 2 seconds of a round
+    if (this.roundData.elapsedSeconds < 2) {
+      return {
+        final: 75,
+        breakdown: { ocular: 75, pose: 75, vocal: 75, fluency: 75, expression: 75 },
+        stats: { timeSeconds: this.roundData.elapsedSeconds, blinkRate: '0.0', wpm: 0, stabilityPercent: '100.0', avgVolume: 0 }
+      };
     }
 
-    const timeInMinutes = this.totalElapsedSeconds / 60 || 0.01;
-
+    const timeInMinutes = Math.max(0.05, this.roundData.elapsedSeconds / 60); // Min 3 seconds for math stability
     let expressionScore = 75;
-    if (this.sessionData.expressionScores.length > 0) {
-      const avgExpressionScore = this.sessionData.expressionScores.reduce((a, b) => a + b, 0) /
-        this.sessionData.expressionScores.length;
-      expressionScore = avgExpressionScore * 100;
+    if (this.roundData.expressionScores.length > 0) {
+      expressionScore = (this.roundData.expressionScores.reduce((a, b) => a + b, 0) / this.roundData.expressionScores.length) * 100;
     }
-
-    const blinkRate = this.sessionData.totalBlinks / timeInMinutes;
-    let ocularScore = 0;
-    if (blinkRate > 25) ocularScore = 60;
-    else if(blinkRate >20) ocularScore = 70;
-    else if(blinkRate >15) ocularScore = 80;
-    else if(blinkRate >8) ocularScore = 90;
-    else ocularScore = 100;
-
-    const totalPoseFrames = this.sessionData.headStabilityFrames.stable +
-      this.sessionData.headStabilityFrames.unstable;
-    const stabilityPercentage = totalPoseFrames > 0 ?
-      (this.sessionData.headStabilityFrames.stable / totalPoseFrames) * 100 : 75;
+    const blinkRate = this.roundData.totalBlinks / timeInMinutes;
+    let ocularScore = blinkRate > 25 ? 60 : (blinkRate > 20 ? 70 : (blinkRate > 15 ? 80 : (blinkRate > 8 ? 90 : 100)));
+    const totalPoseFrames = this.roundData.headStabilityFrames.stable + this.roundData.headStabilityFrames.unstable;
+    const stabilityPercentage = totalPoseFrames > 0 ? (this.roundData.headStabilityFrames.stable / totalPoseFrames) * 100 : 75;
     const poseScore = stabilityPercentage > 70 ? 100 : stabilityPercentage;
-
     let vocalScore = 0;
-    if (this.sessionData.volumeSamples.length > 0) {
-      const avgVolume = this.sessionData.volumeSamples.reduce((a, b) => a + b, 0) /
-        this.sessionData.volumeSamples.length;
+    if (this.roundData.volumeSamples.length > 0) {
+      const avgVolume = this.roundData.volumeSamples.reduce((a, b) => a + b, 0) / this.roundData.volumeSamples.length;
       vocalScore = (avgVolume > 15 && avgVolume < 80) ? 100 : 50;
     }
-
-    const wpm = this.sessionData.totalWords / timeInMinutes;
-    const hesitationRate = this.sessionData.totalHesitations / timeInMinutes;
-
-    let fluencyScore = 0;
-    if (wpm >= 120 && wpm <= 160 && hesitationRate < 3) {
-      fluencyScore = 100;
-    } else if (wpm > 0 && wpm < 100) {
-      fluencyScore = 60;
-    } else if (wpm > 180) {
-      fluencyScore = 70;
-    } else {
-      fluencyScore = 50;
-    }
-
-    const finalScore = (
-      (ocularScore * 0.20) +
-      (poseScore * 0.15) +
-      (vocalScore * 0.25) +
-      (fluencyScore * 0.20) +
-      (expressionScore * 0.20)
-    );
-
+    const wpm = this.roundData.totalWords / timeInMinutes;
+    const hesitationRate = this.roundData.totalHesitations / timeInMinutes;
+    let fluencyScore = (wpm >= 120 && wpm <= 160 && hesitationRate < 3) ? 100 : (wpm > 0 && wpm < 100 ? 60 : (wpm > 180 ? 70 : 50));
+    const finalScore = (ocularScore * 0.20) + (poseScore * 0.15) + (vocalScore * 0.25) + (fluencyScore * 0.20) + (expressionScore * 0.20);
     return {
       final: Math.round(finalScore),
-      breakdown: {
-        ocular: Math.round(ocularScore),
-        pose: Math.round(poseScore),
-        vocal: Math.round(vocalScore),
-        fluency: Math.round(fluencyScore),
-        expression: Math.round(expressionScore)
-      },
-      stats: {
-        timeMinutes: timeInMinutes.toFixed(2),
-        blinkRate: blinkRate.toFixed(1),
-        wpm: Math.round(wpm),
-        stabilityPercent: stabilityPercentage.toFixed(1),
-        avgVolume: this.sessionData.volumeSamples.length > 0 ?
-          Math.round(this.sessionData.volumeSamples.reduce((a, b) => a + b, 0) /
-            this.sessionData.volumeSamples.length) : 0
-      }
+      breakdown: { ocular: Math.round(ocularScore), pose: Math.round(poseScore), vocal: Math.round(vocalScore), fluency: Math.round(fluencyScore), expression: Math.round(expressionScore) },
+      stats: { timeSeconds: this.roundData.elapsedSeconds, blinkRate: blinkRate.toFixed(1), wpm: Math.round(wpm), stabilityPercent: stabilityPercentage.toFixed(1), avgVolume: this.roundData.volumeSamples.length > 0 ? Math.round(this.roundData.volumeSamples.reduce((a, b) => a + b, 0) / this.roundData.volumeSamples.length) : 0 }
     };
   }
 
   getSessionSummary() {
-    const score = this.calculateFinalScore();
+    const validRounds = this.allRoundResults.filter(r => r.score !== null);
+    const count = validRounds.length;
+
+    const avgFinal = count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.final, 0) / count) : 0;
+
+    const averageBreakdown = {
+      expression: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.breakdown.expression, 0) / count) : 0,
+      ocular: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.breakdown.ocular, 0) / count) : 0,
+      pose: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.breakdown.pose, 0) / count) : 0,
+      vocal: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.breakdown.vocal, 0) / count) : 0,
+      fluency: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.breakdown.fluency, 0) / count) : 0,
+    };
+
+    const averageStats = {
+      blinkRate: count > 0 ? (validRounds.reduce((acc, r) => acc + parseFloat(r.score.stats.blinkRate), 0) / count).toFixed(1) : '0.0',
+      wpm: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.stats.wpm, 0) / count) : 0,
+      stabilityPercent: count > 0 ? (validRounds.reduce((acc, r) => acc + parseFloat(r.score.stats.stabilityPercent), 0) / count).toFixed(1) : '0.0',
+      avgVolume: count > 0 ? Math.round(validRounds.reduce((acc, r) => acc + r.score.stats.avgVolume, 0) / count) : 0,
+    };
+
     return {
       interviewType: this.interviewType,
       totalTime: this.totalElapsedSeconds,
-      questionsCompleted: this.currentQuestionIndex + 1,
-      score: score,
-      rawData: this.sessionData
+      questionsCompleted: count,
+      averageScore: avgFinal,
+      averageBreakdown,
+      averageStats,
+      rounds: this.allRoundResults
     };
   }
 }
